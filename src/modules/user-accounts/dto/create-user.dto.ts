@@ -4,3 +4,9 @@ export class CreateUserDto {
   email: string;
   password: string;
 }
+
+//dto для смены пароля по коду восстановления
+export class NewPasswordDto {
+  newPassword: string;
+  recoveryCode: string;
+}
