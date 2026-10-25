@@ -5,11 +5,12 @@ import {
   HttpCode,
   HttpStatus,
   Post,
+  Res,
   UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiBody } from '@nestjs/swagger';
-import { UsersService } from '../application/users.service';
-import { AuthService } from '../application/auth.service';
+import { CommandBus } from '@nestjs/cqrs';
+import { Response } from 'express';
 import { AuthQueryRepository } from '../infrastructure/query/auth.query-repository';
 import { LocalAuthGuard } from '../guards/local/local-auth.guard';
 import { JwtAuthGuard } from '../guards/bearer/jwt-auth.guard';
@@ -21,12 +22,17 @@ import { RegistrationConfirmationCodeInputDto } from './input-dto/registration-c
 import { RegistrationEmailResendingInputDto } from './input-dto/registration-email-resending.input-dto';
 import { PasswordRecoveryInputDto } from './input-dto/password-recovery.input-dto';
 import { NewPasswordInputDto } from './input-dto/new-password.input-dto';
+import { LoginUserCommand } from '../application/usecases/login-user.usecase';
+import { RegisterUserCommand } from '../application/usecases/users/register-user.usecase';
+import { ConfirmRegistrationCommand } from '../application/usecases/users/confirm-registration.usecase';
+import { ResendConfirmationEmailCommand } from '../application/usecases/users/resend-confirmation-email.usecase';
+import { PasswordRecoveryCommand } from '../application/usecases/users/password-recovery.usecase';
+import { NewPasswordCommand } from '../application/usecases/users/new-password.usecase';
 
 @Controller('auth')
 export class AuthController {
   constructor(
-    private usersService: UsersService,
-    private authService: AuthService,
+    private readonly commandBus: CommandBus,
     private authQueryRepository: AuthQueryRepository,
   ) {}
 
@@ -43,23 +49,35 @@ export class AuthController {
       },
     },
   })
-  login(
-    /*@Request() req: any*/
+  async login(
     @ExtractUserFromRequest() user: UserContextDto,
-  ): { accessToken: string } {
-    return this.authService.login(user.id);
+    //passthrough: true - ставим cookie сами, а ответ nest отправит как обычно
+    @Res({ passthrough: true }) response: Response,
+  ): Promise<{ accessToken: string }> {
+    const { accessToken, refreshToken } = await this.commandBus.execute<
+      LoginUserCommand,
+      { accessToken: string; refreshToken: string }
+    >(new LoginUserCommand({ userId: user.id }));
+
+    //по swagger refresh токен приходит в cookie (http-only, secure)
+    response.cookie('refreshToken', refreshToken, {
+      httpOnly: true,
+      secure: true,
+    });
+
+    return { accessToken };
   }
 
   @Post('password-recovery')
   @HttpCode(HttpStatus.NO_CONTENT)
   passwordRecovery(@Body() body: PasswordRecoveryInputDto): Promise<void> {
-    return this.authService.passwordRecovery(body.email);
+    return this.commandBus.execute(new PasswordRecoveryCommand(body.email));
   }
 
   @Post('new-password')
   @HttpCode(HttpStatus.NO_CONTENT)
   newPassword(@Body() body: NewPasswordInputDto): Promise<void> {
-    return this.authService.newPassword(body);
+    return this.commandBus.execute(new NewPasswordCommand(body));
   }
 
   @Post('registration-confirmation')
@@ -67,13 +85,13 @@ export class AuthController {
   registrationConfirmation(
     @Body() body: RegistrationConfirmationCodeInputDto,
   ): Promise<void> {
-    return this.authService.confirmRegistration(body.code);
+    return this.commandBus.execute(new ConfirmRegistrationCommand(body.code));
   }
 
   @Post('registration')
   @HttpCode(HttpStatus.NO_CONTENT)
   registration(@Body() body: CreateUserInputDto): Promise<void> {
-    return this.usersService.registerUser(body);
+    return this.commandBus.execute(new RegisterUserCommand(body));
   }
 
   @Post('registration-email-resending')
@@ -81,7 +99,9 @@ export class AuthController {
   registrationEmailResending(
     @Body() body: RegistrationEmailResendingInputDto,
   ): Promise<void> {
-    return this.authService.resendConfirmationEmail(body.email);
+    return this.commandBus.execute(
+      new ResendConfirmationEmailCommand(body.email),
+    );
   }
 
   @ApiBearerAuth()

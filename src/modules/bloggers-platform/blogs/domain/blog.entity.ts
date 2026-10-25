@@ -3,16 +3,33 @@ import { HydratedDocument, Model } from 'mongoose';
 import { CreateBlogDomainDto } from './dto/create-blog.domain.dto';
 import { UpdateBlogDto } from '../dto/create-blog.dto';
 
+//ограничения из swagger, используем и в схеме mongoose, и во входных dto (валидация)
+export const nameConstraints = {
+  minLength: 1,
+  maxLength: 15,
+};
+
+export const descriptionConstraints = {
+  minLength: 1,
+  maxLength: 500,
+};
+
+export const websiteUrlConstraints = {
+  minLength: 1,
+  maxLength: 100,
+  match: /^https:\/\/([a-zA-Z0-9_-]+\.)+[a-zA-Z0-9_-]+(\/[a-zA-Z0-9_-]+)*\/?$/,
+};
+
 //флаг timestamps автоматически добавляет поля updatedAt и createdAt
 @Schema({ timestamps: true })
 export class Blog {
-  @Prop({ type: String, required: true })
+  @Prop({ type: String, required: true, ...nameConstraints })
   name: string;
 
-  @Prop({ type: String, required: true })
+  @Prop({ type: String, required: true, ...descriptionConstraints })
   description: string;
 
-  @Prop({ type: String, required: true })
+  @Prop({ type: String, required: true, ...websiteUrlConstraints })
   websiteUrl: string;
 
   /**

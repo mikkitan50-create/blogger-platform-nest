@@ -11,13 +11,15 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ApiBasicAuth, ApiParam } from '@nestjs/swagger';
+import { CommandBus } from '@nestjs/cqrs';
 import { UsersQueryRepository } from '../infrastructure/query/users.query-repository';
-import { UsersService } from '../application/users.service';
 import { UserViewDto } from './view-dto/users.view-dto';
 import { CreateUserInputDto } from './input-dto/users.input-dto';
 import { GetUsersQueryParams } from './input-dto/get-users-query-params.input-dto';
 import { PaginatedViewDto } from '../../../core/dto/base.paginated.view-dto';
 import { BasicAuthGuard } from '../guards/basic/basic-auth.guard';
+import { CreateUserCommand } from '../application/usecases/admins/create-user.usecase';
+import { DeleteUserCommand } from '../application/usecases/admins/delete-user.usecase';
 
 @Controller('users')
 //все эндпоинты users только для админа (basic auth)
@@ -26,7 +28,7 @@ import { BasicAuthGuard } from '../guards/basic/basic-auth.guard';
 export class UsersController {
   constructor(
     private usersQueryRepository: UsersQueryRepository,
-    private usersService: UsersService,
+    private readonly commandBus: CommandBus,
   ) {}
 
   @Get()
@@ -38,7 +40,9 @@ export class UsersController {
 
   @Post()
   async createUser(@Body() body: CreateUserInputDto): Promise<UserViewDto> {
-    const userId = await this.usersService.createUser(body);
+    const userId = await this.commandBus.execute<CreateUserCommand, string>(
+      new CreateUserCommand(body),
+    );
 
     return this.usersQueryRepository.getByIdOrNotFoundFail(userId);
   }
@@ -47,6 +51,8 @@ export class UsersController {
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   async deleteUser(@Param('id') id: string): Promise<void> {
-    return this.usersService.deleteUser(id);
+    return this.commandBus.execute<DeleteUserCommand, void>(
+      new DeleteUserCommand(id),
+    );
   }
 }

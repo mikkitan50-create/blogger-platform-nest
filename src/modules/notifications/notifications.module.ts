@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 import { MailerModule } from '@nestjs-modules/mailer';
 import { EmailService } from './email.service';
+import { SendConfirmationEmailEventHandler } from './application/event-handlers/send-confirmation-email.event-handler';
+import { SendPasswordRecoveryEmailEventHandler } from './application/event-handlers/send-password-recovery-email.event-handler';
 
 @Module({
   imports: [
@@ -20,7 +22,11 @@ import { EmailService } from './email.service';
       },
     }),
   ],
-  providers: [EmailService],
+  providers: [
+    EmailService,
+    SendConfirmationEmailEventHandler,
+    SendPasswordRecoveryEmailEventHandler,
+  ],
   exports: [EmailService],
 })
 export class NotificationsModule {}

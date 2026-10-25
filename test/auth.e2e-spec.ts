@@ -8,6 +8,7 @@ import { delay } from './helpers/delay';
 import { GLOBAL_PREFIX } from '../src/setup/global-prefix.setup';
 import { EmailService } from '../src/modules/notifications/email.service';
 import { ACCESS_TOKEN_SECRET } from '../src/modules/user-accounts/constants/auth-tokens.constants';
+import { ACCESS_TOKEN_STRATEGY_INJECT_TOKEN } from '../src/modules/user-accounts/constants/auth-tokens.inject-constants';
 
 describe('auth', () => {
   let app: INestApplication;
@@ -232,14 +233,16 @@ describe('auth (expired access token)', () => {
   let userTestManger: UsersTestManager;
 
   beforeAll(async () => {
-    //подменяем JwtService, чтобы токен жил 2 секунды
+    //подменяем JwtService для access токена, чтобы токен жил 2 секунды
     const result = await initSettings((moduleBuilder) =>
-      moduleBuilder.overrideProvider(JwtService).useValue(
-        new JwtService({
-          secret: ACCESS_TOKEN_SECRET,
-          signOptions: { expiresIn: '2s' },
-        }),
-      ),
+      moduleBuilder
+        .overrideProvider(ACCESS_TOKEN_STRATEGY_INJECT_TOKEN)
+        .useValue(
+          new JwtService({
+            secret: ACCESS_TOKEN_SECRET,
+            signOptions: { expiresIn: '2s' },
+          }),
+        ),
     );
     app = result.app;
     userTestManger = result.userTestManger;

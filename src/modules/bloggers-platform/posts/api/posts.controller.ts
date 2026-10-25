@@ -9,59 +9,129 @@ import {
   Post,
   Put,
   Query,
+  UseGuards,
 } from '@nestjs/common';
-import { ApiParam } from '@nestjs/swagger';
-import { PostsQueryRepository } from '../infrastructure/query/posts.query-repository';
-import { PostsService } from '../application/posts.service';
+import { ApiBasicAuth, ApiBearerAuth, ApiParam } from '@nestjs/swagger';
+import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import { PostViewDto } from './view-dto/posts.view-dto';
 import { CreatePostInputDto } from './input-dto/posts.input-dto';
 import { UpdatePostInputDto } from './input-dto/update-post.input-dto';
 import { GetPostsQueryParams } from './input-dto/get-posts-query-params.input-dto';
 import { PaginatedViewDto } from '../../../../core/dto/base.paginated.view-dto';
-import { CommentsQueryRepository } from '../../comments/infrastructure/query/comments.query-repository';
+import { CreatePostCommand } from '../application/usecases/create-post.usecase';
+import { UpdatePostCommand } from '../application/usecases/update-post.usecase';
+import { DeletePostCommand } from '../application/usecases/delete-post.usecase';
+import { UpdatePostLikeStatusCommand } from '../application/usecases/update-post-like-status.usecase';
+import { GetPostsQuery } from '../application/queries/get-posts.query-handler';
+import { GetPostByIdQuery } from '../application/queries/get-post-by-id.query-handler';
 import { CommentViewDto } from '../../comments/api/view-dto/comments.view-dto';
+import { CommentInputDto } from '../../comments/api/input-dto/comment.input-dto';
 import { GetCommentsQueryParams } from '../../comments/api/input-dto/get-comments-query-params.input-dto';
+import { CreateCommentCommand } from '../../comments/application/usecases/create-comment.usecase';
+import { GetPostCommentsQuery } from '../../comments/application/queries/get-post-comments.query-handler';
+import { GetCommentByIdQuery } from '../../comments/application/queries/get-comment-by-id.query-handler';
+import { LikeInputDto } from '../../likes/api/input-dto/like.input-dto';
+import { BasicAuthGuard } from '../../../user-accounts/guards/basic/basic-auth.guard';
+import { JwtAuthGuard } from '../../../user-accounts/guards/bearer/jwt-auth.guard';
+import { JwtOptionalAuthGuard } from '../../../user-accounts/guards/bearer/jwt-optional-auth.guard';
+import { ExtractUserFromRequest } from '../../../user-accounts/guards/decorators/param/extract-user-from-request.decorator';
+import { ExtractUserIfExistsFromRequest } from '../../../user-accounts/guards/decorators/param/extract-user-if-exists-from-request.decorator';
+import { UserContextDto } from '../../../user-accounts/guards/dto/user-context.dto';
 
 @Controller('posts')
 export class PostsController {
   constructor(
-    private postsQueryRepository: PostsQueryRepository,
-    private postsService: PostsService,
-    private commentsQueryRepository: CommentsQueryRepository,
+    private readonly commandBus: CommandBus,
+    private readonly queryBus: QueryBus,
   ) {}
 
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @ApiParam({ name: 'postId' }) //для сваггера
+  @Put(':postId/like-status')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async updateLikeStatus(
+    @Param('postId') postId: string,
+    @Body() body: LikeInputDto,
+    @ExtractUserFromRequest() user: UserContextDto,
+  ): Promise<void> {
+    return this.commandBus.execute(
+      new UpdatePostLikeStatusCommand(postId, user.id, body.likeStatus),
+    );
+  }
+
+  //токен необязательный: нужен только для myStatus в лайках комментариев
+  @ApiBearerAuth()
+  @UseGuards(JwtOptionalAuthGuard)
   @ApiParam({ name: 'postId' }) //для сваггера
   @Get(':postId/comments')
   async getCommentsForPost(
     @Param('postId') postId: string,
     @Query() query: GetCommentsQueryParams,
+    @ExtractUserIfExistsFromRequest() user: UserContextDto | null,
   ): Promise<PaginatedViewDto<CommentViewDto[]>> {
-    //если поста нет -> 404
-    await this.postsQueryRepository.getByIdOrNotFoundFail(postId);
-
-    return this.commentsQueryRepository.getAllForPost(query, postId);
+    return this.queryBus.execute(
+      new GetPostCommentsQuery(postId, query, user?.id ?? null),
+    );
   }
 
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @ApiParam({ name: 'postId' }) //для сваггера
+  @Post(':postId/comments')
+  async createComment(
+    @Param('postId') postId: string,
+    @Body() body: CommentInputDto,
+    @ExtractUserFromRequest() user: UserContextDto,
+  ): Promise<CommentViewDto> {
+    const commentId = await this.commandBus.execute<
+      CreateCommentCommand,
+      string
+    >(
+      new CreateCommentCommand({
+        postId,
+        userId: user.id,
+        content: body.content,
+      }),
+    );
+
+    return this.queryBus.execute(new GetCommentByIdQuery(commentId, user.id));
+  }
+
+  @ApiBearerAuth()
+  @UseGuards(JwtOptionalAuthGuard)
   @Get()
   async getAll(
     @Query() query: GetPostsQueryParams,
+    @ExtractUserIfExistsFromRequest() user: UserContextDto | null,
   ): Promise<PaginatedViewDto<PostViewDto[]>> {
-    return this.postsQueryRepository.getAll(query);
+    return this.queryBus.execute(new GetPostsQuery(query, user?.id ?? null));
   }
 
+  @ApiBasicAuth('basicAuth')
+  @UseGuards(BasicAuthGuard)
   @Post()
   async createPost(@Body() body: CreatePostInputDto): Promise<PostViewDto> {
-    const postId = await this.postsService.createPost(body);
+    const postId = await this.commandBus.execute<CreatePostCommand, string>(
+      new CreatePostCommand(body),
+    );
 
-    return this.postsQueryRepository.getByIdOrNotFoundFail(postId);
+    return this.queryBus.execute(new GetPostByIdQuery(postId, null));
   }
 
+  @ApiBearerAuth()
+  @UseGuards(JwtOptionalAuthGuard)
   @ApiParam({ name: 'id' }) //для сваггера
   @Get(':id')
-  async getById(@Param('id') id: string): Promise<PostViewDto> {
-    return this.postsQueryRepository.getByIdOrNotFoundFail(id);
+  async getById(
+    @Param('id') id: string,
+    @ExtractUserIfExistsFromRequest() user: UserContextDto | null,
+  ): Promise<PostViewDto> {
+    return this.queryBus.execute(new GetPostByIdQuery(id, user?.id ?? null));
   }
 
+  @ApiBasicAuth('basicAuth')
+  @UseGuards(BasicAuthGuard)
   @ApiParam({ name: 'id' }) //для сваггера
   @Put(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
@@ -69,13 +139,15 @@ export class PostsController {
     @Param('id') id: string,
     @Body() body: UpdatePostInputDto,
   ): Promise<void> {
-    return this.postsService.updatePost(id, body);
+    return this.commandBus.execute(new UpdatePostCommand(id, body));
   }
 
+  @ApiBasicAuth('basicAuth')
+  @UseGuards(BasicAuthGuard)
   @ApiParam({ name: 'id' }) //для сваггера
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   async deletePost(@Param('id') id: string): Promise<void> {
-    return this.postsService.deletePost(id);
+    return this.commandBus.execute(new DeletePostCommand(id));
   }
 }

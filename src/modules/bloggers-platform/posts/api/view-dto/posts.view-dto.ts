@@ -24,7 +24,12 @@ export class PostViewDto {
   createdAt: Date;
   extendedLikesInfo: ExtendedLikesInfoViewDto;
 
-  static mapToView(post: PostDocument): PostViewDto {
+  //myStatus и newestLikes берем из коллекции likes в query репозитории
+  static mapToView(
+    post: PostDocument,
+    myStatus: LikeStatus,
+    newestLikes: LikeDetailsViewDto[],
+  ): PostViewDto {
     const dto = new PostViewDto();
 
     dto.id = post._id.toString();
@@ -37,10 +42,8 @@ export class PostViewDto {
     dto.extendedLikesInfo = {
       likesCount: post.likesCount,
       dislikesCount: post.dislikesCount,
-      //авторизации пока нет, поэтому статус текущего пользователя всегда None
-      myStatus: LikeStatus.None,
-      //лайки ставить будем в следующих домашках
-      newestLikes: [],
+      myStatus: myStatus,
+      newestLikes: newestLikes,
     };
 
     return dto;

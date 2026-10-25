@@ -19,7 +19,11 @@ export class CommentViewDto {
   createdAt: Date;
   likesInfo: LikesInfoViewDto;
 
-  static mapToView(comment: CommentDocument): CommentViewDto {
+  //myStatus берем из коллекции likes в query репозитории
+  static mapToView(
+    comment: CommentDocument,
+    myStatus: LikeStatus,
+  ): CommentViewDto {
     const dto = new CommentViewDto();
 
     dto.id = comment._id.toString();
@@ -32,8 +36,7 @@ export class CommentViewDto {
     dto.likesInfo = {
       likesCount: comment.likesCount,
       dislikesCount: comment.dislikesCount,
-      //авторизации пока нет, поэтому статус текущего пользователя всегда None
-      myStatus: LikeStatus.None,
+      myStatus: myStatus,
     };
 
     return dto;
